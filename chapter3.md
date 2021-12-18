@@ -198,6 +198,201 @@
 # 控制
 程序语言中存在分支、循环这种非线性语句，我们只用前面的语句难以操作
 ## 1. 条件码
-1. CPU有一个条件码寄存器，它们对于执行条件进行检测
-2. ALU 除了执行算术和逻辑运算指令外，还会根据该运算的结果去设置条件码寄存器
-3. 
+1. ALU 除了执行算术和逻辑运算指令外，还会根据该运算的结果去设置条件码寄存器
+2. CPU负责维护条件码寄存器。条件码寄存器对于执行条件进行检测
+3. 条件码寄存器在执行下一条语句时，上一个行语句的条件状态会被覆盖
+4. 常见条件码：
+   1. CF：进位标志，当CPU 最近执行的一条指令最高位产生了进位时，进位标志(CF）会被置为1，它可以用来检查无符号数操作的溢出。
+   2. ZF：零标志，当最近操作的结果等于零时，零标志(ZF) 会被置1。
+   3. SF: 符号标志，当最近的操作结果小于零时，符号标志(SF) 会被置1
+   4. OF: 溢出标志，针对有符号数，最近的操作导致正溢出或者负溢出时溢出标志(OF)会被置1
+5. 我们在前面提到的[算数与逻辑操作](#算数和逻辑操作)中除了leaq，其他指令都会设置条件码。比如XOR，执行时会将CF火刃OF均设置为0
+6. CMP和test也会设置条件码寄存器：
+   1. cmp 指令是根据两个操作数的差来设置条件码寄存器。cmp 指令和减法指令(sub）类似，也是根据两个操作是的差来设置条件码，二者不同的是cmp 指令只是设置条件码寄存器，并不会更新目的寄存器的值
+   2. test 指令和and 指令类似，同样test 指令只是设置条件码寄存器，而不改变目的寄存器的值
+      1. test可以用来检测一个数是否是负数：test两个操作数相同
+      2. 用来测试一个操作数的某几个位置的bit：两个参数一个操作数，一个是掩码
+   3. 指令细则：<br>![](./pic/chapter3/25.PNG)
+## 2. 访问条件码
+1. 条件码一般不会直接读取，而是通过三种方式实现
+   1. 根据条件码的组合，将一个字节设置为0或1
+   2. 用条件跳转到程序某个部分
+   3. 有条件地传送数据
+2. SET：根据条件码的组合，将一个字节设置为0或1
+   1. set指令的目的操作数必须是低位单字节寄存器元素或者字节的内存位置，指令会将指定字节位置设置为0或1.
+   2. 为了得到32位或者64位结果，我们必须针对高位清0
+   3. 常用set指令：<br>![](./pic/chapter3/26.PNG)
+   4. 示例：
+      1. setb例子：
+         ```
+         int comp(long a, long b){
+            return (a == b);
+            }
+         ```
+         汇编指令为：
+         ```
+         comp:
+            cmpq %rsi, %rdi
+            sete %al
+            movzl %al, %eax
+            ret
+         ```
+         这里返回值int为4字节长度类型，所以寄存器开辟的是32位寄存器%eax<br>
+         a in rdi, b in rsi。cmpq是对比a是否等于b。cmp命令中，被比较数a会在第二个位置<br>如果a和b相等，ZF设置为1<br>
+         sete：如果ZF为1，eax最低位al设置为1，否则为0<br>
+         movzl：对eax其他位进行清零<br>
+      2. setl的例子：<br>
+         ```
+         int comp(char a, char b){
+            return (a < b);
+            }
+         ```
+         汇编指令为：
+         ```
+         comp:
+            cmpb %sil, %dil
+            setl %al
+            movzbl %al, %eax
+            ret
+         ```
+         这里a和b类型是long，为4字节长度类型，所以寄存器开辟的是32位寄存器%eax<br>
+         a in dil, b in sil。cmpq是对比a是否等于b。cmp命令中，被比较数a会在第二个位置<br>如果a小于b，ZF设置1<br>
+         setl：根据SF^OF的值设定al：<br>![](./pic/chapter3/27.PNG)<br>其中，case3和4均发生了溢出，所以OF=1<br>
+         movzl：对eax其他位进行清零<br>
+## 3. 跳转
+1. 计算机中，跳转的目的地通常用label指明，比如下面的汇编代码：<br>![](./pic/chapter3/28.PNG)<br>指令会因为jmp而跳转到L1的位置
+2. 产生代码文件时，汇编器会确定所有带标号指令的地址，并将跳转目标编码为跳转指令的一部分
+3. 跳转指令的编码
+   1. PC相对寻址：以程序计数器PC的当前值（R15中的值）为基地址，指令中的地址标号作为偏移量，将两者相加后得到操作数的有效地址。比如L2在第8行，那么这种寻址方法就是PC当前地址+0x8
+   2. 绝对寻址：直接存储地址
+4. 常见指令汇总：<br>![](./pic/chapter3/29.PNG)
+5. jmp:无条件跳转指令
+   1. 直接跳转：操作数为一个label
+   2. 间接跳转：操作数为一个地址。间接地址写法为`*操作数`
+      1. 跳到寄存器：jmp *%rax
+      2. 跳到内存：jmp *(%rax)
+## 4. 条件分支
+1. C语言中有一个实现jmp的命令，goto。但是goto并不是一个好的编程风格，因此我们一般不去使用。但是我们可以借助goto理解汇编
+2. 使用控制转移实现条件分支：
+   1. if-else跳转的常见goto改写：<br>
+   ```
+   if (test-expr)
+      then-statement
+   else
+      else-statement
+   
+   改写为goto：
+      t = test-expr;
+      if (!t)
+         goto false;
+      then-statement
+      goto done;
+   false:
+      else-statemnt
+   done
+   ```
+   2. 代码示例：
+   ```
+   long absdiff_se(long x, long y){
+      long result;
+      if(x < y){result = y - x;} else{result = x - y;}
+      return result;
+      }
+   ```
+   我们理解这个例子时候可以转成goto的形式
+   ```
+   long absdiff_se(long x, long y){
+      long result;
+      if(x >= y)
+         goto x_ge_y;
+      result = y - x;
+      return result;
+   x_ge_y:
+      result = x- y;
+      return result;
+   }
+   ```
+   这种形式与汇编代码基本一致：
+   x in %rdi, y in %rsi
+   ```
+   absdiff_se:
+      cmpq %rsi, %rdi
+      jge .L2
+      movq %rsi, %rax
+      subq %rdi, %rax
+      ret
+   .L2:
+      movq %rdi, %rax
+      subq %rsi, %rdi
+      ret
+   ```
+3. 上述的例子的这种条件跳转在现代处理器中可能不够高效。**使用数据的条件转移会比控制转移更加高效**
+   1. 为什么这种更高效：
+      1. 处理器通过流水线获得高性能。
+      2. 处理器常常会预先确定接下来要执行的语句，以便于并行处理
+      3. 因此，当遇到条件跳转时，处理器会根据分支预测器来猜测每条跳转指令是否执行
+      4. 当发生错误预测时，处理器会丢弃它为当前分支做的所有工作并回跳至起始位置。这会浪费大量的时间，导致程序性能严重下降
+      5. 减少分支有利于提高程序效率
+   2. 条件语句转化为赋值表达：<br>
+   ```
+   v = test-expr ? then-expr : else-expr;
+
+   改写成数据传递表达：
+   v = then-expr;
+   ve = else-expr;
+   t = test-expr;
+   if (!t) v = ve;
+   ```
+   3. 原代码：
+      ```
+      long comvdiff_se(long x, long y){
+         long result;
+         if (x < y)
+            result = y - x;
+         else:
+            result = x - y; 
+         return result;
+      }
+      ```
+   4. 用条件赋值进行改写：
+      ```
+      long comvdiff_se(long x, long y){
+         long rval = y - x; 
+         long eval = x - y;
+         long ntest = x >= y;
+         if(ntest){rval = eval;} 
+         return rval;
+      }
+      ```
+   5. 汇编代码：
+      x in %rdi, y in %rsi
+      ```
+      comvdiff_se:
+         movq %rsi, %rax
+         subq %rdi, %rax
+         movq %rdi, %rdx
+         subq %rsi, %rdx
+         cmpq %rsi, %rdi
+         cmovge %rdx, %rax
+         ret
+      ```
+   6. cmovge：是根据条件码的某种组合来进行有条件的传送数据，当满足规定的条件时，将寄存器rdx内的数据复制到寄存器rax内
+   7. 常见的条件传送指令：![](./pic/chapter3/30.PNG)
+4. 并非所有指令都可以修改成数据传送形式
+   1. 反例：<br>
+      ```
+      long cread(long *xp){
+         return (xp ? *xp : 0);
+      }
+      ```
+      改写成条件传送
+      ```
+      v1 = *xp;
+      v2 = 0;
+      t = xp;
+      if (!t){v1 = v2} return v1;
+      ```
+      如果是一个空指针xp，这明显会报错，v1根本没法赋值，也谈不上改写成汇编语言了
+   2. 条件传送也可能会导致多余的计算。在面对分支条件是有较复杂计算的时候，条件传送并不划算，因为它要把分支全部计算
+5. 
+
