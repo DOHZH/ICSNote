@@ -394,5 +394,163 @@
       ```
       如果是一个空指针xp，这明显会报错，v1根本没法赋值，也谈不上改写成汇编语言了
    2. 条件传送也可能会导致多余的计算。在面对分支条件是有较复杂计算的时候，条件传送并不划算，因为它要把分支全部计算
-5. 
+
+## 5. 循环
+1.  do-while循环
+    1. 改写方法：<br>
+      ```
+      do
+         body-statement
+         while (test-expr)
+      ```
+      改写为
+      ```
+      loop:
+         body-statement
+         t = test-expr;
+         if (t)
+            goto loop;
+      ```
+     2.  改写示例：
+     ```
+     long fact_do(long n)
+     {
+        long result = 1;
+        do {
+           result *= n;
+           n = n -1;
+        }while (n>1);
+        return result;
+     }
+     ```
+     汇编指令：
+     n in %rdi
+     ```
+     mov1 $1, %eax
+     .L2:
+         imulq    %rdi, %rax
+         subq     $1, %rdi
+         compq    $1, %rdi
+         jg       .L2
+         rep
+         ret
+     ```
+     rep：循环执行标识。主要是提醒程序要执行分支预测了。不写rep也是可以的，但是如果写了会极大优化编译
+2.  while循环
+    1. 改写方法：<br>
+      ```
+      while (test-expr)
+         body-statement
+      ```
+      改写为
+      ```
+         goto test;
+      loop:
+         body-statement
+      test:   
+         t = test-expr;
+         if (t)
+            goto loop;
+      ```
+   2. guarded-do方法：先改成do-while再改成汇编
+      ```
+      t = test-expr
+      if (!t)
+         goto done
+      do
+         body-statement
+         while (test-expr)
+      done:
+      ```
+      汇编形式：
+      ```
+      t = test-expr
+      if (!t)
+         goto done
+      loop:
+         body-statement
+         t = test-expr
+         if (t)
+            goto loop;
+      done:
+      ```
+    3. 改写示例：
+     ```
+     long fact_do(long n)
+     {
+        long result = 1;
+        while (n>1) {
+           result *= n;
+           n = n -1;
+        }
+        return result;
+     }
+     ```
+     汇编指令：
+     n in %rdi
+     ```
+     mov1 $1, %eax
+     fact_while:
+         movl     $1, %eax
+         jmp      .L5
+     .L6:
+         imulq    %rdi, %rax
+         subq     $1, %rdi 
+     .L5:
+         compq    $1, %rdi
+         jg       .L6
+         rep
+         ret
+     ```
+     这里L6执行完，会顺序执行L5中的内容，以实现循环。<br>
+     我们当然还可以用guarded-do方法
+3.  for
+    1.  for和while本质等价，产生的策略和while的两种翻译相同
+    2.  原语句：<br>
+    ```
+    for (init-expr; test-expr; update-expr)
+         body-statement
+    ```
+    3.  普通策略
+    ```
+      init-expr;
+      goto test;
+    loop:
+      body-statement;
+      update-expr;
+    test:
+      t = test-expr;
+      if (t)
+         goto loop
+    ```
+    4.  guarded-do策略
+    ```
+      init-expr;
+      t = test-expr;
+      if (!t)
+         goto done;
+    loop:
+      body-statement;
+      update-expr;
+      t = test-expr;
+      if (t)
+         goto loop;
+    done:
+    ```
+    test-expr是循环继续条件，因此在loop中要再次给t赋值，因为test-expr需要重新检查在test-expr之后的变量是否仍符合循环条件
+## 6. switch
+1. 提高了C代码的可读性，也通过使用跳转表这种数据结构使得程序更加高效
+2. 跳转表：一个数组，表项i是一个代码段的地址。当开关索引值等于i，会跳转到在这个对应地址位置的代码块
+3. 执行开关语句的时间与开关情况的数量无关。
+4. GCC执行switch的时候，会根据开关情况的数量与细数成都来翻译开关语句。如果开关情况较多（比如4个以上），会使用跳转表
+5. 汇编示例：<br>
+![](./pic/chapter3/31.PNG)
+<br>右侧为switch语句在C语言中的类汇编形式<br>汇编指令为<br>![](./pic/chapter3/32.PNG)
+   1. cmpq：该段程序中，因为case一共有100，102-104，和106几种情况，因此编译器先将n-100，取值范围为0~6（在C语言中的类汇编形式中为index变量）。
+   2. .L4：此时会开辟一个长度为7跳转表，表每个单元都是8字节地址，记录不同代码块位置。跳转表的地址记录形式为间接寻址，以.L4为地址起始，然后对于表内数值地址他们相对于L4的偏移量。<br>因为101和105没有情况，所以他们的地址都写为.L8，即默认地址。因为104和106的情况下，代码块相同，所以他们的地址也相同，都是.L7<br>![](./pic/chapter3/33.PNG)
+   3. jmp \*.L4：\*表示这是一个间接跳转，操作数为一个内存位置，索引由%寄存器rsi给出，这里存放了index。8表示这是一个8字节地址
+   4. case102，也就是loc_B位置，并没有写break，因此代码不会终止跳转至.L2，而是继续顺序执行，执行case103，然后在case103中跳出
+
+# 过程
+
 
